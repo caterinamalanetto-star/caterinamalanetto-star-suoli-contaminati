@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Siti potenzialmente contaminati stimati, registrati e bonificati nell'Ue – Radar QN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,700&display=swap">
+<link rel="stylesheet" href="../assets/radar.css">
+<style>
+  .w-key { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin: 14px 0 0; font-size: 13px; line-height: 1.35; color: var(--ink-2); }
+  .w-key div { display: flex; gap: 8px; align-items: flex-start; }
+  .w-key i { flex: none; width: 12px; height: 12px; border-radius: 2px; margin-top: 2px; }
+  .w-key b { display: block; font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .cell { shape-rendering: geometricPrecision; }
+  @media (max-width: 519px) { .w-key { grid-template-columns: 1fr; gap: 8px; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="../assets/radar.js"></script>
+</head>
+<body>
+<main class="radar">
+  <header>
+    <h1 class="r-title">Censito meno di un sito sospetto su due</h1>
+    <p class="r-sub">Siti potenzialmente contaminati nell'Unione europea: stima totale, siti iscritti nei registri nazionali e siti bonificati. Ogni quadrato vale 5.000 siti. Dati 2016</p>
+  </header>
+
+  <div class="r-big" id="big" aria-hidden="true">
+    <span class="r-big__num" id="big-num">&nbsp;</span>
+    <span class="r-big__label" id="big-label"></span>
+  </div>
+
+  <figure class="r-chart" id="chart"></figure>
+  <div class="w-key" id="key" aria-hidden="true"></div>
+  <p class="r-note" id="nota"></p>
+
+  <footer class="r-foot">
+    <span>Fonte: Agenzia europea dell'ambiente, indicatore «Progress in the management of contaminated sites in Europe» (2022)</span>
+    <span>Elaborazione Radar – QN</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var R = Radar, fmt = R.fmt, UNIT = 5000;
+  R.loadCSV("../data/registri-aea.csv").then(function (rows) {
+    var v = rows.map(function (r) { return R.num(r["Siti"]); });
+    var est = v[0], reg = v[1], rem = v[2];
+    var nRem = Math.round(rem / UNIT), nReg = Math.round(reg / UNIT), nEst = Math.round(est / UNIT);
+    var cells = d3.range(nEst).map(function (i) { return { i: i, k: i < nRem ? "rem" : (i < nReg ? "reg" : "out") }; });
+    var share = reg / est;
+    var mil = function (x) { return fmt(x / 1e6, 2).replace(/0$/, "") + " milioni"; };
+
+    var bigNum = d3.select("#big-num");
+    var pctF = function (x) { return fmt(x, 0) + "%"; };
+    d3.select("#big-label").text("dei siti potenzialmente contaminati stimati nell'Ue risulta nei registri nazionali: " + mil(reg) + " su " + mil(est));
+    if (R.reduced) bigNum.text(pctF(share * 100));
+    else { bigNum.text("0%"); R.onFirstView(document.getElementById("big"), function () { R.countUp(bigNum, share * 100, pctF, "play"); }); }
+
+    var KEY = [
+      { k: "rem", c: "var(--blue-1)", n: rem, t: "bonificati, l'" + fmt(rem / reg * 100, 1) + "% dei registrati" },
+      { k: "reg", c: "var(--blue-3)", n: reg - rem, t: "registrati, senza bonifica conclusa" },
+      { k: "out", c: "none", n: est - reg, t: "stimati ma non censiti in nessun registro" }
+    ];
+    var key = d3.select("#key").selectAll("div").data(KEY).join("div");
+    key.append("i").style("background", function (d) { return d.k === "out" ? "var(--bg)" : d.c; })
+      .style("border", function (d) { return d.k === "out" ? "1.5px dashed var(--red)" : null; });
+    key.append("span").html(function (d) { return "<b>" + fmt(d.n, 0) + "</b>" + d.t; });
+
+    d3.select("#nota").text("La stima di 2,8 milioni è una proiezione del Centro comune di ricerca della Commissione europea sui dati nazionali del 2016; secondo l'Aea è probabilmente per difetto. " +
+      "Una volta completati registri nazionali confrontabili, l'Aea si aspetta che ne risultino almeno 2 milioni.");
+
+    var host = document.getElementById("chart");
+    var tip = R.tooltip(host);
+    var clear = function () {};
+    R.dismissOutside(host, function () { tip.hide(); clear(); });
+
+    R.responsive(host, function (W, phase) {
+      var narrow = R.isNarrow(W);
+      var cols = narrow ? 20 : 35, gap = 2;
+      var s = Math.floor((W - gap * (cols - 1)) / cols);
+      var rowsN = Math.ceil(nEst / cols);
+      var H = rowsN * (s + gap);
+      d3.select(host).select("svg").remove();
+      var svg = d3.select(host).insert("svg", ".r-tip").attr("width", W).attr("height", H).attr("role", "img")
+        .attr("aria-label", "Grafico a quadrati: dei " + mil(est) + " di siti potenzialmente contaminati stimati nell'Ue, " + mil(reg) +
+          " risultano nei registri nazionali e " + fmt(rem, 0) + " sono stati bonificati.");
+      svg.append("title").text("Siti stimati, registrati e bonificati nell'Ue");
+      var x = function (i) { return (i % cols) * (s + gap); }, y = function (i) { return Math.floor(i / cols) * (s + gap); };
+      var rects = svg.append("g").selectAll("rect").data(cells).join("rect").attr("class", "cell mark")
+        .attr("x", function (d) { return x(d.i) + (d.k === "out" ? 0.75 : 0); })
+        .attr("y", function (d) { return y(d.i) + (d.k === "out" ? 0.75 : 0); })
+        .attr("width", function (d) { return d.k === "out" ? s - 1.5 : s; })
+        .attr("height", function (d) { return d.k === "out" ? s - 1.5 : s; })
+        .attr("rx", 1.5)
+        .style("fill", function (d) { return d.k === "rem" ? "var(--blue-1)" : d.k === "reg" ? "var(--blue-3)" : "var(--bg)"; })
+        .style("stroke", function (d) { return d.k === "out" ? "var(--red)" : null; })
+        .style("stroke-width", function (d) { return d.k === "out" ? 1 : null; })
+        .style("stroke-dasharray", function (d) { return d.k === "out" ? "2 1.5" : null; });
+      R.enter(rects, phase,
+        function (sel) { sel.style("opacity", 0); },
+        function (tr) { tr.duration(300).delay(function (d) { return d.i * 2.2; }).style("opacity", 1); });
+
+      clear = function () { rects.classed("is-dimmed", false); };
+      rects.on("pointerenter pointerdown", function (ev, d) {
+        rects.classed("is-dimmed", function (q) { return q.k !== d.k; });
+        var k = KEY.filter(function (q) { return q.k === d.k; })[0];
+        var p = d3.pointer(ev, host);
+        tip.show(R.tipHTML({ title: k.t.charAt(0).toUpperCase() + k.t.slice(1), value: fmt(k.n, 0), unit: "siti" }), p[0], p[1]);
+      }).on("pointerleave", function (ev) { if (ev.pointerType === "mouse") { tip.hide(); clear(); } });
+      R.scheduleHeight();
+    });
+  }).catch(function (e) { R.fail("#chart", e); });
+})();
+</script>
+</body>
+</html>

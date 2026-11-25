@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Le scadenze della direttiva europea sul monitoraggio del suolo – Radar QN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,700&display=swap">
+<link rel="stylesheet" href="../assets/radar.css">
+<style>
+  .tl-date { font-size: 13px; font-weight: 600; fill: var(--ink); font-variant-numeric: tabular-nums; }
+  .tl-text { font-size: 14px; fill: var(--ink); }
+  .tl-who { font-size: 12px; fill: var(--ink-2); }
+  .tl-axis { stroke: var(--rule); stroke-width: 2; }
+  .tl-break { stroke: var(--ink-2); stroke-width: 1; }
+  .tl-today { font-size: 12px; font-weight: 600; fill: var(--ink-2); text-transform: none; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="../assets/radar.js"></script>
+</head>
+<body>
+<main class="radar">
+  <header>
+    <h1 class="r-title">Dieci anni per censire i siti sospetti, 25 per avere suoli sani</h1>
+    <p class="r-sub">Le scadenze fissate dalla direttiva (Ue) 2025/2360 sul monitoraggio e la resilienza del suolo, pubblicata in Gazzetta ufficiale il 26 novembre 2025</p>
+  </header>
+
+  <figure class="r-chart" id="chart"></figure>
+  <p class="r-note">La direttiva chiede di adottare misure di riduzione del rischio «senza indebito ritardo» dove il rischio è inaccettabile, ma non fissa una data entro cui completare le bonifiche. Tra parentesi l'articolo della direttiva.</p>
+
+  <footer class="r-foot">
+    <span>Fonte: direttiva (Ue) 2025/2360, Gazzetta ufficiale dell'Unione europea, serie L, 26 novembre 2025</span>
+    <span>Elaborazione Radar – QN</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var R = Radar;
+  var MONTHS = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+  var parse = d3.timeParse("%Y-%m-%d");
+  var label = function (dt, yearOnly) { return yearOnly ? String(dt.getFullYear()) : dt.getDate() + " " + MONTHS[dt.getMonth()] + " " + dt.getFullYear(); };
+  R.loadCSV("../data/scadenze-direttiva.csv").then(function (rows) {
+    var data = rows.map(function (r) { return { dt: parse(r["Data"]), t: r["Scadenza"], who: r["Chi"], art: r["Articolo"], hi: r["Evidenza"] === "si" }; });
+    var today = new Date();
+    var host = document.getElementById("chart");
+
+    R.responsive(host, function (W, phase) {
+      var narrow = R.isNarrow(W);
+      var axX = narrow ? 10 : 132, txtX = narrow ? 30 : 160, txtW = W - txtX - 4;
+      // posizioni verticali: proporzionali al tempo fino al 2036, poi un salto fino al 2050
+      var y0 = 18, perYear = narrow ? 78 : 66, start = data[0].dt;
+      var years = function (d) { return (d - start) / (365.25 * 864e5); };
+      var cut = parse("2036-06-30");
+      var yOf = function (dt) { return dt <= cut ? y0 + years(dt) * perYear : y0 + years(cut) * perYear + 70; };
+
+      d3.select(host).select("svg").remove();
+      var svg = d3.select(host).insert("svg").attr("width", W).attr("role", "img")
+        .attr("aria-label", "Linea del tempo delle scadenze della direttiva sul suolo: " + data.map(function (d) { return label(d.dt, d.dt.getFullYear() === 2050) + ", " + d.t; }).join("; ") + ".");
+      svg.append("title").text("Scadenze della direttiva europea sul monitoraggio del suolo");
+      var g = svg.append("g");
+
+      var items = g.append("g").selectAll("g").data(data).join("g").attr("class", "mark");
+      items.append("circle").attr("cx", axX).attr("r", function (d) { return d.hi ? 7 : 5; })
+        .style("fill", function (d) { return d.hi ? "var(--red)" : "var(--blue)"; }).style("stroke", "var(--bg)").style("stroke-width", 2);
+      if (!narrow) items.append("text").attr("class", "tl-date").attr("x", axX - 16).attr("dy", "0.35em").attr("text-anchor", "end")
+        .style("fill", function (d) { return d.hi ? "var(--red)" : null; })
+        .text(function (d) { return label(d.dt, d.dt.getFullYear() === 2050); });
+      var tx = items.append("text").attr("class", "tl-text").attr("x", txtX).attr("y", 0).attr("dy", "0.35em")
+        .style("font-weight", function (d) { return d.hi ? 600 : null; })
+        .style("fill", function (d) { return d.hi ? "var(--red)" : null; })
+        .text(function (d) { return (narrow ? label(d.dt, d.dt.getFullYear() === 2050) + " · " : "") + d.t; });
+      R.wrap(tx, txtW, 1.3);
+      items.each(function (d) {
+        var n = d3.select(this).selectAll(".tl-text tspan").size() || 1;
+        d3.select(this).append("text").attr("class", "tl-who").attr("x", txtX).attr("y", n * 18.2).attr("dy", "0.35em")
+          .text(d.who + " (art. " + d.art + ")");
+        d.h = this.getBBox().height;
+      });
+      // posizione: proporzionale al tempo, ma mai sovrapposta alla voce precedente
+      var prevBottom = -Infinity;
+      data.forEach(function (d, i) {
+        var y = yOf(d.dt);
+        if (i && d.dt > cut) y = Math.max(y, prevBottom + 70);
+        d.y = Math.max(y, prevBottom + 22);
+        prevBottom = d.y + d.h - 8;
+      });
+      items.attr("transform", function (d) { return "translate(0," + d.y + ")"; });
+      var last = data[data.length - 1], prevL = data[data.length - 2];
+      var breakY = (prevL.y + prevL.h + last.y) / 2 - 4;
+      var ax = g.insert("g", ":first-child");
+      ax.append("line").attr("class", "tl-axis").attr("x1", axX).attr("x2", axX).attr("y1", data[0].y).attr("y2", breakY - 8);
+      ax.append("line").attr("class", "tl-axis").attr("x1", axX).attr("x2", axX).attr("y1", breakY + 8).attr("y2", last.y).style("stroke-dasharray", "3 4");
+      [-4, 4].forEach(function (o) { ax.append("line").attr("class", "tl-break").attr("x1", axX - 7).attr("x2", axX + 7).attr("y1", breakY + o + 2).attr("y2", breakY + o - 2); });
+      // oggi: interpolato tra le due scadenze vicine
+      var j = d3.bisector(function (d) { return d.dt; }).left(data, today);
+      if (j > 0 && j < data.length - 1) {
+        var a = data[j - 1], b = data[j];
+        var ty = a.y + a.h + (b.y - a.y - a.h) * Math.min(1, Math.max(0, (today - a.dt) / (b.dt - a.dt)));
+        ty = Math.min(Math.max(ty, a.y + a.h - 2), b.y - 14);
+        ax.append("line").attr("x1", axX - (narrow ? 6 : 10)).attr("x2", W).attr("y1", ty).attr("y2", ty).style("stroke", "var(--ink-2)").style("stroke-dasharray", "2 3");
+        ax.append("text").attr("class", "tl-today").attr("x", W).attr("y", ty - 5).attr("text-anchor", "end").text("Oggi, " + label(today));
+      }
+      R.enter(items, phase,
+        function (s) { s.style("opacity", 0); },
+        function (s) { s.delay(function (d, i) { return i * 70; }).style("opacity", 1); });
+
+      var bb = g.node().getBBox();
+      svg.attr("height", Math.ceil(bb.y + bb.height + 6));
+      R.scheduleHeight();
+    });
+  }).catch(function (e) { R.fail("#chart", e); });
+})();
+</script>
+</body>
+</html>

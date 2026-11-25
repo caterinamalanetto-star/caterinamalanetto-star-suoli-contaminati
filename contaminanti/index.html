@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>I contaminanti più frequenti nei siti europei, suolo e acque sotterranee – Radar QN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,700&display=swap">
+<link rel="stylesheet" href="../assets/radar.css">
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="../assets/radar.js"></script>
+</head>
+<body>
+<main class="radar">
+  <header>
+    <h1 class="r-title">Metalli pesanti e oli minerali, quasi sei casi su dieci nel suolo</h1>
+    <p class="r-sub">Quota di ciascuna categoria di contaminanti sul totale dei casi di contaminazione locale segnalati, nel suolo e nelle acque sotterranee. Percentuali, dati 2011</p>
+  </header>
+
+  <div class="r-big" id="big" aria-hidden="true">
+    <span class="r-big__num" id="big-num">&nbsp;</span>
+    <span class="r-big__label" id="big-label"></span>
+  </div>
+
+  <figure class="r-chart" id="chart"></figure>
+  <div class="r-key" aria-hidden="true">
+    <span><i class="sw" style="background:var(--blue)"></i>Suolo</span>
+    <span><i class="sw sw--ring" style="border-color:var(--grey)"></i>Acque sotterranee</span>
+  </div>
+  <p class="r-note" id="nota">Quote calcolate dal Jrc sulle risposte dei Paesi: 16 per il suolo, 12 per le acque sotterranee. Btex: benzene, toluene, etilbenzene e xileni. Dove i due valori coincidono si vede un solo punto. È l'ultima rilevazione europea su questo dato.</p>
+
+  <footer class="r-foot">
+    <span>Fonte: Jrc, «Progress in the management of contaminated sites in Europe» (2014), figura 9</span>
+    <span>Elaborazione Radar – QN</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var R = Radar, fmt = R.fmt;
+  var pc = function (v) { return fmt(v, 0) + "%"; };
+  R.loadCSV("../data/contaminanti-jrc-2011.csv").then(function (rows) {
+    var data = rows.map(function (r) { return { k: r["Contaminante"], s: R.num(r["Suolo %"]), w: R.num(r["Acque sotterranee %"]) }; })
+      .sort(function (a, b) { return b.s - a.s || b.w - a.w; });
+    // "Altri" sempre in fondo tra le categorie principali
+    var top2 = data[0].s + data[1].s;
+
+    var bigNum = d3.select("#big-num");
+    d3.select("#big-label").text("dei casi di contaminazione del suolo è dovuto a " + data[0].k.toLowerCase() + " (" + pc(data[0].s) + ") o " + data[1].k.toLowerCase() + " (" + pc(data[1].s) + ")");
+    if (R.reduced) bigNum.text(pc(top2));
+    else { bigNum.text("0%"); R.onFirstView(document.getElementById("big"), function () { R.countUp(bigNum, top2, pc, "play"); }); }
+
+    var host = document.getElementById("chart");
+    var tip = R.tooltip(host);
+    var clear = function () {};
+    R.dismissOutside(host, function () { tip.hide(); clear(); });
+
+    R.responsive(host, function (W, phase) {
+      var narrow = R.isNarrow(W);
+      var labW = narrow ? 0 : 250, row = narrow ? 50 : 34;
+      var m = { top: 22, right: 34, bottom: 6, left: labW };
+      var w = W - m.left - m.right;
+      var H = m.top + m.bottom + row * data.length;
+      var x = d3.scaleLinear().domain([0, 40]).range([0, w]);
+      var cy = function (i) { return i * row + (narrow ? 32 : row / 2); };
+
+      d3.select(host).select("svg").remove();
+      var svg = d3.select(host).insert("svg", ".r-tip").attr("width", W).attr("height", H).attr("role", "img")
+        .attr("aria-label", "Grafico a punti: quota dei contaminanti nel suolo e nelle acque sotterranee nel 2011. " +
+          data.map(function (d) { return d.k + " " + pc(d.s) + " nel suolo e " + pc(d.w) + " nelle acque"; }).join("; ") + ".");
+      svg.append("title").text("Contaminanti più frequenti nei siti contaminati europei, 2011");
+      var g = svg.append("g").attr("transform", "translate(" + m.left + "," + m.top + ")");
+
+      var ticks = [0, 10, 20, 30, 40];
+      var grid = g.append("g").attr("class", "grid");
+      grid.selectAll("line").data(ticks).join("line").attr("x1", x).attr("x2", x).attr("y1", -6).attr("y2", row * data.length);
+      g.append("g").attr("class", "axis").selectAll("text").data(ticks).join("text").attr("class", "tick-label")
+        .attr("x", x).attr("y", -12).attr("text-anchor", "middle").text(function (t) { return t === 40 ? "40%" : t; });
+
+      var isRed = function (d, i) { return i === 0; };
+      var rowsG = g.append("g").selectAll("g").data(data).join("g").attr("class", "mark");
+      rowsG.append("text").attr("class", "tick-label")
+        .attr("x", narrow ? 0 : -14).attr("y", function (d, i) { return narrow ? cy(i) - 15 : cy(i); }).attr("dy", "0.35em")
+        .attr("text-anchor", narrow ? "start" : "end")
+        .style("fill", function (d, i) { return isRed(d, i) ? "var(--red)" : "var(--ink)"; })
+        .style("font-weight", function (d, i) { return isRed(d, i) ? 600 : null; })
+        .text(function (d) { return d.k; });
+      var links = rowsG.append("line").attr("y1", function (d, i) { return cy(i); }).attr("y2", function (d, i) { return cy(i); })
+        .style("stroke", "var(--grey-4)").style("stroke-width", 2);
+      var cw = rowsG.append("circle").attr("cy", function (d, i) { return cy(i); }).attr("r", 5.5)
+        .style("fill", "var(--bg)").style("stroke", "var(--grey)").style("stroke-width", 2);
+      var cs = rowsG.append("circle").attr("cy", function (d, i) { return cy(i); }).attr("r", 6)
+        .style("fill", function (d, i) { return isRed(d, i) ? "var(--red)" : "var(--blue)"; });
+      var vs = rowsG.append("text").attr("class", "val-label").attr("y", function (d, i) { return cy(i); }).attr("dy", "0.35em")
+        .style("fill", function (d, i) { return isRed(d, i) ? "var(--red)" : null; })
+        .style("font-weight", function (d, i) { return isRed(d, i) ? 600 : null; });
+      var vw = rowsG.append("text").attr("class", "val-label val-label--muted").attr("y", function (d, i) { return cy(i); }).attr("dy", "0.35em");
+
+      function place(sel, t) {
+        links.attr("x1", function (d) { return x(Math.min(d.s, d.w) * t); }).attr("x2", function (d) { return x(Math.max(d.s, d.w) * t); });
+        cs.attr("cx", function (d) { return x(d.s * t); });
+        cw.attr("cx", function (d) { return x(d.w * t); });
+        vs.attr("x", function (d) { return d.s >= d.w ? x(d.s * t) + 11 : x(d.s * t) - 11; })
+          .attr("text-anchor", function (d) { return d.s >= d.w ? "start" : "end"; })
+          .text(function (d) { return d.s === d.w ? pc(d.s) : pc(d.s); });
+        vw.attr("x", function (d) { return d.w > d.s ? x(d.w * t) + 11 : x(d.w * t) - 11; })
+          .attr("text-anchor", function (d) { return d.w > d.s ? "start" : "end"; })
+          .text(function (d) { return d.s === d.w ? "" : pc(d.w); });
+      }
+      if (phase === "play") {
+        place(null, 0);
+        d3.transition().duration(R.DUR).ease(R.EASE).tween("pos", function () { return function (t) { place(null, t); }; });
+      } else place(null, phase === "pre" ? 0 : 1);
+      if (phase === "pre") { vs.style("opacity", 0); vw.style("opacity", 0); }
+
+      clear = function () { rowsG.classed("is-dimmed", false); };
+      g.append("g").selectAll("rect").data(data).join("rect").attr("class", "hit")
+        .attr("x", -labW).attr("width", W).attr("y", function (d, i) { return i * row; }).attr("height", row)
+        .on("pointerenter pointerdown", function (ev, d) {
+          rowsG.classed("is-dimmed", function (q) { return q !== d; });
+          var i = data.indexOf(d);
+          tip.show(R.tipHTML({ title: d.k, value: null, rows: [["Suolo", pc(d.s)], ["Acque sotterranee", pc(d.w)]] }),
+            Math.min(m.left + x(Math.max(d.s, d.w)) + 20, W - 20), m.top + cy(i));
+        })
+        .on("pointerleave", function (ev) { if (ev.pointerType === "mouse") { tip.hide(); clear(); } });
+      R.scheduleHeight();
+    });
+  }).catch(function (e) { R.fail("#chart", e); });
+})();
+</script>
+</body>
+</html>

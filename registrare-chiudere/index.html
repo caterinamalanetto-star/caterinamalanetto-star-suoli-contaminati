@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Siti registrati e pratiche chiuse, per Paese – Radar QN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,700&display=swap">
+<link rel="stylesheet" href="../assets/radar.css">
+<style>
+  .pt { stroke: var(--bg); stroke-width: 1.2; }
+  .pt-label { font-size: 12px; fill: var(--ink-2); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+  .axis-title { font-size: 12px; fill: var(--ink-2); }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="../assets/radar.js"></script>
+</head>
+<body>
+<main class="radar">
+  <header>
+    <h1 class="r-title">Austria e Svezia, registri pieni ma meno del 5% dei siti chiuso</h1>
+    <p class="r-sub">Per ogni Paese, siti registrati per km² di superficie artificiale (scala logaritmica) e quota di siti già bonificati o indagati senza bisogno di intervento sul totale dei registrati. Dati nazionali 2016</p>
+  </header>
+
+  <figure class="r-chart" id="chart"></figure>
+  <div class="r-key" aria-hidden="true">
+    <span><i class="sw" style="background:var(--blue);border-radius:50%"></i>Paesi Ue</span>
+    <span><i class="sw sw--ring" style="border-color:var(--grey)"></i>Paesi non Ue</span>
+    <span><i class="sw" style="background:var(--red);border-radius:50%"></i>Italia</span>
+  </div>
+  <p class="r-note" id="nota">Una quota alta non significa per forza bonifiche più rapide: dipende anche da quanti siti un Paese ha scelto di registrare. La Bulgaria, per esempio, ne ha registrati 26. Il Belgio compare con le due regioni che hanno fornito dati. Esclusi Malta e Romania, senza dati sulle pratiche chiuse.</p>
+
+  <footer class="r-foot">
+    <span>Fonte: Jrc, «Status of local soil contamination in Europe» (2018), tabelle 11 e 12</span>
+    <span>Elaborazione Radar – QN</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var R = Radar, fmt = R.fmt;
+  var f2 = function (v) { return fmt(v, 2); }, f1 = function (v) { return fmt(v, 1); }, f0 = function (v) { return fmt(v, 0); };
+  R.loadCSV("../data/paesi-jrc-2016.csv").then(function (rows) {
+    var data = rows.map(function (r) {
+      return { k: r["Paese"], s: r["Nome breve"], iso: r["ISO"], reg: R.num(r["Siti registrati"]), rem: R.num(r["Siti bonificati"]),
+        d: R.num(r["Siti registrati per km2"]), q: R.num(r["Quota chiusi %"]), note: r["Nota"], nonUe: /non Ue/.test(r["Nota"] || "") };
+    }).filter(function (d) { return d.q != null && d.d != null && d.d > 0; });
+    var host = document.getElementById("chart");
+    var tip = R.tooltip(host);
+    var clear = function () {};
+    R.dismissOutside(host, function () { tip.hide(); clear(); });
+    var byS = {}; data.forEach(function (d) { byS[d.s] = d; });
+
+    R.responsive(host, function (W, phase) {
+      var narrow = R.isNarrow(W);
+      var m = { top: 14, right: narrow ? 14 : 24, bottom: 42, left: 36 };
+      var H = narrow ? 400 : 460;
+      var w = W - m.left - m.right, h = H - m.top - m.bottom;
+      var x = d3.scaleLog().domain([0.008, 60]).range([0, w]);
+      var y = d3.scaleLinear().domain([0, narrow ? 94 : 90]).range([h, 0]);
+
+      d3.select(host).select("svg").remove();
+      var svg = d3.select(host).insert("svg", ".r-tip").attr("width", W).attr("height", H).attr("role", "img")
+        .attr("aria-label", "Grafico a dispersione dei Paesi europei: siti registrati per km² e quota di siti chiusi nel 2016. " +
+          "Austria " + f2(byS.Austria.d) + " siti per km² e " + f1(byS.Austria.q) + "% chiusi; Svezia " + f2(byS.Svezia.d) + " e " + f1(byS.Svezia.q) +
+          "%; Italia " + f2(byS.Italia.d) + " e " + f1(byS.Italia.q) + "%.");
+      svg.append("title").text("Siti registrati per km² e quota di siti chiusi, per Paese, 2016");
+      var g = svg.append("g").attr("transform", "translate(" + m.left + "," + m.top + ")");
+
+      var yt = [0, 20, 40, 60, 80];
+      g.append("g").attr("class", "grid").selectAll("line").data(yt).join("line").attr("x1", 0).attr("x2", w).attr("y1", y).attr("y2", y);
+      g.append("g").attr("class", "axis").selectAll("text").data(yt).join("text").attr("class", "tick-label")
+        .attr("x", -8).attr("y", y).attr("dy", "0.35em").attr("text-anchor", "end").text(function (t) { return t === 80 ? "80%" : t; });
+      var xt = narrow ? [0.01, 0.1, 1, 10] : [0.01, 0.1, 1, 10, 50];
+      g.append("g").attr("class", "axis").selectAll("text").data(xt).join("text").attr("class", "tick-label")
+        .attr("x", x).attr("y", h + 18).attr("text-anchor", "middle").text(function (t) { return fmt(t, t < 1 ? (t < 0.1 ? 2 : 1) : 0); });
+      g.append("text").attr("class", "axis-title").attr("x", w).attr("y", h + 36).attr("text-anchor", "end").text("Siti registrati per km² →");
+      g.append("text").attr("class", "axis-title").attr("x", 0).attr("y", -2).text("");
+
+      var pts = g.append("g").selectAll("circle").data(data).join("circle").attr("class", "pt mark")
+        .attr("cx", function (d) { return x(d.d); })
+        .attr("r", function (d) { return d.s === "Italia" ? 7 : 5.5; })
+        .style("fill", function (d) { return d.s === "Italia" ? "var(--red)" : d.nonUe ? "var(--bg)" : "var(--blue)"; })
+        .style("stroke", function (d) { return d.nonUe ? "var(--grey)" : null; })
+        .style("stroke-width", function (d) { return d.nonUe ? 1.8 : null; });
+      R.enter(pts, phase,
+        function (s) { s.attr("cy", y(0)).style("opacity", 0); },
+        function (s) { s.delay(function (d, i) { return i * 18; }).attr("cy", function (d) { return y(d.q); }).style("opacity", 1); });
+
+      var LAB = narrow ? ["Lussemburgo", "Bulgaria"] : ["Lussemburgo", "Bulgaria", "Fiandre", "Germania", "Francia", "Danimarca", "Spagna", "Portogallo", "Croazia"];
+      var labs = g.append("g").selectAll("text").data(data.filter(function (d) { return LAB.indexOf(d.s) >= 0; })).join("text").attr("class", "pt-label mark")
+        .attr("x", function (d) { return d.s === "Lussemburgo" ? x(d.d) : x(d.d) + 9; })
+        .attr("y", function (d) { return d.s === "Lussemburgo" ? y(d.q) - 13 : y(d.q); }).attr("dy", "0.35em")
+        .attr("text-anchor", function (d) { return d.s === "Lussemburgo" ? "end" : "start"; })
+        .text(function (d) { return d.s; });
+      if (phase === "pre") labs.style("opacity", 0);
+
+      // annotazioni
+      var anno = g.append("g").attr("class", "anno");
+      if (phase === "pre") anno.style("opacity", 0);
+      function note(d, lines, dx, dy, anchor, red) {
+        var cx = x(d.d), cy = y(d.q), tx = cx + dx, ty = cy + dy;
+        anno.append("line").attr("x1", cx).attr("y1", cy + (dy < 0 ? -7 : 7)).attr("x2", tx).attr("y2", ty + (dy < 0 ? 6 : -14));
+        var t = anno.append("text").attr("x", tx).attr("y", ty).attr("text-anchor", anchor);
+        lines.forEach(function (l, i) {
+          var s = t.append("tspan").attr("x", tx).attr("dy", i ? "1.3em" : 0).text(l);
+          if (!i) s.attr("class", "em").style("fill", red ? "var(--red)" : null);
+        });
+      }
+      var A = byS.Austria, S = byS.Svezia, I = byS.Italia;
+      // Austria e Svezia: un'unica nota in alto a destra, con due linee verso i punti
+      var nx = w, ny = y(narrow ? 88 : 44);
+      var tAS = anno.append("text").attr("x", nx).attr("y", ny).attr("text-anchor", "end");
+      tAS.append("tspan").attr("x", nx).attr("class", "em").text("Austria e Svezia");
+      if (!narrow) tAS.append("tspan").attr("x", nx).attr("dy", "1.3em").text(f0(A.reg) + " e " + f0(S.reg) + " siti,");
+      tAS.append("tspan").attr("x", nx).attr("dy", "1.3em").text("chiusi l'" + f1(A.q) + "% e il " + f1(S.q) + "%");
+      var lx = nx - (narrow ? 34 : 70), ly = ny + (narrow ? 15 : 32);
+      [A, S].forEach(function (d) { anno.append("line").attr("x1", lx).attr("y1", ly + 6).attr("x2", x(d.d)).attr("y2", y(d.q) - 7); });
+      if (narrow) anno.append("text").attr("x", x(I.d) - 10).attr("y", y(I.q) - 12).attr("text-anchor", "end").append("tspan").attr("class", "em").style("fill", "var(--red)").text("Italia " + f1(I.q) + "%");
+      else note(I, ["Italia", f0(I.reg) + " siti, chiuso il " + f1(I.q) + "%"], 20, -72, "start", true);
+
+      clear = function () { pts.classed("is-dimmed", false); };
+      pts.style("cursor", "pointer").on("pointerenter pointerdown", function (ev, d) {
+        pts.classed("is-dimmed", function (q) { return q !== d; });
+        tip.show(R.tipHTML({ title: d.k, value: f1(d.q) + "%", unit: "dei siti chiusi",
+          rows: [["Siti registrati", f0(d.reg)], ["Siti per km²", f2(d.d)], ["Siti bonificati", d.rem == null ? "n.d." : f0(d.rem)]], note: d.note || null }),
+          m.left + x(d.d), m.top + y(d.q));
+      }).on("pointerleave", function (ev) { if (ev.pointerType === "mouse") { tip.hide(); clear(); } });
+      if (phase === "play") { labs.transition().delay(R.DUR).duration(300).style("opacity", 1); anno.transition().delay(R.DUR).duration(300).style("opacity", 1); }
+      R.scheduleHeight();
+    });
+  }).catch(function (e) { R.fail("#chart", e); });
+})();
+</script>
+</body>
+</html>

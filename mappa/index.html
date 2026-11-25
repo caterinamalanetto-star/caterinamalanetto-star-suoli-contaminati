@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Siti registrati per km² di superficie artificiale, per Paese – Radar QN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,700&display=swap">
+<link rel="stylesheet" href="../assets/radar.css">
+<style>
+  .m-legend { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 20px; margin: 4px 0 10px; font-size: 12px; color: var(--ink-2); }
+  .m-scale { display: flex; flex-direction: column; gap: 4px; }
+  .m-scale__t { font-weight: 600; color: var(--ink); }
+  .m-steps { display: flex; gap: 2px; }
+  .m-steps span { display: flex; flex-direction: column; gap: 3px; width: 52px; font-variant-numeric: tabular-nums; }
+  .m-steps i { display: block; height: 10px; border-radius: 1px; }
+  .m-extra { display: flex; gap: 14px; flex-wrap: wrap; }
+  .m-extra span { display: inline-flex; align-items: center; gap: 6px; }
+  .m-extra i { display: inline-block; width: 12px; height: 10px; border-radius: 1px; }
+  .country { stroke: var(--bg); stroke-width: 0.6; stroke-linejoin: round; }
+  .country.is-out { pointer-events: none; }
+  .country.is-hi { stroke: var(--ink); stroke-width: 1.2; }
+  .it-outline { fill: none; stroke: var(--red); stroke-width: 1.4; stroke-linejoin: round; pointer-events: none; }
+  .dot-small { stroke: var(--bg); stroke-width: 1; }
+  #big { margin-bottom: 16px; }
+  @media (max-width: 519px) { .m-steps span { width: 44px; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="../assets/radar.js"></script>
+</head>
+<body>
+<main class="radar">
+  <header>
+    <h1 class="r-title">Lo stesso suolo, registri molto diversi</h1>
+    <p class="r-sub">Siti in cui si sono svolte attività potenzialmente inquinanti iscritti nei registri nazionali, per chilometro quadrato di superficie artificiale (aree edificate e infrastrutture). Dati nazionali 2016</p>
+  </header>
+
+  <div class="r-big" id="big" aria-hidden="true">
+    <span class="r-big__num" id="big-num">&nbsp;</span>
+    <span class="r-big__label" id="big-label"></span>
+  </div>
+
+  <div class="m-legend" id="legend" aria-hidden="true"></div>
+  <figure class="r-chart" id="chart"></figure>
+  <p class="r-note" id="nota"></p>
+
+  <footer class="r-foot">
+    <span>Fonte: Jrc, «Status of local soil contamination in Europe» (2018), tabelle 10 e 11. Confini: Natural Earth</span>
+    <span>Elaborazione Radar – QN</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var R = Radar, fmt = R.fmt;
+  var f2 = function (v) { return fmt(v, 2); };
+  var f0 = function (v) { return fmt(v, 0); };
+  var BREAKS = [0.5, 2, 5, 10];
+  var STEP_LAB = ["< 0,5", "0,5–2", "2–5", "5–10", "≥ 10"];
+  var COLORS = ["var(--blue-5)", "var(--blue-4)", "var(--blue-3)", "var(--blue-2)", "var(--blue-1)"];
+  // Paesi coperti dall'indagine Jrc/Eionet 2016 senza densità disponibile
+  var NODATA = { "300": "Grecia", "372": "Irlanda", "616": "Polonia" };
+  var SMALL = { "442": true, "470": true };
+
+  Promise.all([R.loadCSV("../data/paesi-jrc-2016.csv"), d3.json("../data/europa.geojson")]).then(function (res) {
+    var rows = res[0], geo = res[1];
+    var byIso = {}, regions = {};
+    rows.forEach(function (r) {
+      var d = { name: r["Paese"], short: r["Nome breve"], iso: r["ISO"], reg: R.num(r["Siti registrati"]),
+        area: R.num(r["Superficie artificiale km2"]), dens: R.num(r["Siti registrati per km2"]), note: r["Nota"] };
+      if (d.iso === "056") { (regions["056"] = regions["056"] || []).push(d); return; }
+      byIso[d.iso] = d;
+    });
+    var cls = function (v) { return d3.bisect(BREAKS, v); };
+    var partial = { "056": true, "826": true };
+
+    // big number: rapporto tra il registro più denso e quello italiano, calcolato dal CSV
+    var it = byIso["380"];
+    var max = rows.reduce(function (a, r) { return R.num(r["Siti registrati per km2"]) > R.num(a["Siti registrati per km2"]) ? r : a; });
+    var bigNum = d3.select("#big-num");
+    var at = byIso["040"], se = byIso["752"];
+    d3.select("#big-label").text("siti registrati per km² di superficie artificiale in Italia. In Austria sono " + f2(at.dens) + ", in Svezia " + f2(se.dens) + ", in " + max["Paese"] + " " + f2(R.num(max["Siti registrati per km2"])));
+    var itTxt = function (v) { return fmt(v, 2); };
+    if (R.reduced) bigNum.text(itTxt(it.dens));
+    else { bigNum.text("0,00"); R.onFirstView(document.getElementById("big"), function () { R.countUp(bigNum, it.dens, itTxt, "play"); }); }
+
+    // legenda
+    var lg = d3.select("#legend");
+    var sc = lg.append("div").attr("class", "m-scale");
+    sc.append("span").attr("class", "m-scale__t").text("Siti registrati per km²");
+    var st = sc.append("div").attr("class", "m-steps");
+    STEP_LAB.forEach(function (t, i) { var s = st.append("span"); s.append("i").style("background", COLORS[i]); s.append("b").style("font-weight", 400).text(t); });
+    var ex = lg.append("div").attr("class", "m-extra");
+    ex.append("span").html('<i style="background:repeating-linear-gradient(135deg,var(--blue-3) 0 2px,var(--bg) 2px 4px);border:1px solid var(--blue-3)"></i>Dato parziale');
+    ex.append("span").html('<i style="background:var(--grey-4)"></i>Nessun dato');
+
+    d3.select("#nota").text("Più che la quantità di inquinamento, la mappa misura quanto è completo ogni registro: i criteri per iscrivere un sito cambiano da Paese a Paese. " +
+      "Belgio: dati separati per Fiandre (18,46) e Vallonia (1,50), mancano quelli di Bruxelles. Regno Unito: solo Inghilterra. " +
+      "Francia: i siti bonificati escono dall'inventario. Paesi Bassi: non esiste un registro nazionale formale. Norvegia, Svizzera, Serbia e Macedonia del Nord non sono nell'Ue.");
+
+    var host = document.getElementById("chart");
+    var tip = R.tooltip(host);
+    var clear = function () {};
+    R.dismissOutside(host, function () { tip.hide(); clear(); });
+
+    var feats = geo.features;
+    var focus = { type: "FeatureCollection", features: feats.filter(function (f) { return byIso[f.id] || regions[f.id] || NODATA[f.id]; }) };
+
+    R.responsive(host, function (W, phase) {
+      var narrow = R.isNarrow(W);
+      var H = Math.round(Math.min(W * (narrow ? 1.12 : 0.86), 660));
+      var proj = d3.geoAzimuthalEqualArea().rotate([-12, -52]);
+      proj.fitExtent([[4, 4], [W - 4, H - 4]], focus);
+      var path = d3.geoPath(proj);
+
+      d3.select(host).select("svg").remove();
+      var sorted = rows.slice().sort(function (a, b) { return R.num(b["Siti registrati per km2"]) - R.num(a["Siti registrati per km2"]); });
+      var svg = d3.select(host).insert("svg", ".r-tip").attr("width", W).attr("height", H).style("overflow", "hidden").attr("role", "img")
+        .attr("aria-label", "Mappa d'Europa dei siti registrati per chilometro quadrato di superficie artificiale nel 2016. Il valore più alto è " +
+          sorted[0]["Paese"] + " con " + sorted[0]["Siti registrati per km2"] + ", l'Italia ha " + f2(it.dens) + ", il più basso è " +
+          sorted[sorted.length - 1]["Paese"] + " con " + sorted[sorted.length - 1]["Siti registrati per km2"] + ".");
+      svg.append("title").text("Siti registrati per km² di superficie artificiale, 2016");
+      var defs = svg.append("defs");
+      var pat = defs.append("pattern").attr("id", "hatch").attr("patternUnits", "userSpaceOnUse").attr("width", 4).attr("height", 4).attr("patternTransform", "rotate(45)");
+      pat.append("rect").attr("width", 4).attr("height", 4).style("fill", "var(--bg)");
+      pat.append("rect").attr("width", 2).attr("height", 4).style("fill", "var(--blue-3)");
+
+      var fillOf = function (f) {
+        if (partial[f.id]) return "url(#hatch)";
+        var d = byIso[f.id];
+        if (d) return COLORS[cls(d.dens)];
+        if (NODATA[f.id]) return "var(--grey-4)";
+        return "var(--rule)";
+      };
+      var isIn = function (f) { return !!(byIso[f.id] || regions[f.id] || NODATA[f.id]); };
+
+      var g = svg.append("g");
+      var paths = g.selectAll("path").data(feats).join("path")
+        .attr("class", function (f) { return "country mark" + (isIn(f) ? "" : " is-out"); })
+        .attr("d", path)
+        .style("fill", fillOf);
+      R.enter(paths.filter(isIn), phase,
+        function (s) { s.style("opacity", 0); },
+        function (s) { s.delay(function (f, i) { return i * 14; }).style("opacity", 1); });
+
+      // contorno Italia in rosso
+      var itF = feats.filter(function (f) { return f.id === "380"; });
+      g.append("g").selectAll("path").data(itF).join("path").attr("class", "it-outline").attr("d", path);
+
+      // pallini per i Paesi troppo piccoli
+      var smallF = feats.filter(function (f) { return SMALL[f.id] && byIso[f.id]; });
+      var dots = g.append("g").selectAll("circle").data(smallF).join("circle").attr("class", "dot-small mark")
+        .attr("cx", function (f) { return path.centroid(f)[0]; }).attr("cy", function (f) { return path.centroid(f)[1]; })
+        .attr("r", narrow ? 4 : 5).style("fill", fillOf);
+
+      // etichette dirette
+      var anno = svg.append("g").attr("class", "anno");
+      function label(iso, text, dx, dy, em) {
+        var f = feats.filter(function (q) { return q.id === iso; })[0];
+        if (!f) return;
+        var c = SMALL[iso] ? path.centroid(f) : path.centroid(f);
+        var x2 = c[0] + dx, y2 = c[1] + dy;
+        if (dx || dy) {
+          anno.append("line").attr("x1", c[0]).attr("y1", c[1]).attr("x2", x2).attr("y2", y2 + (dy < 0 ? 4 : -10));
+          anno.append("circle").attr("cx", c[0]).attr("cy", c[1]).attr("r", 2);
+        }
+        var t = anno.append("text").attr("x", x2).attr("y", y2).attr("text-anchor", dx < 0 ? "end" : (dx > 0 ? "start" : "middle"));
+        t.append("tspan").attr("class", "em").style("fill", em ? "var(--red)" : null).text(text[0]);
+        t.append("tspan").attr("x", x2).attr("dy", "1.25em").text(text[1]);
+      }
+      label("442", ["Lussemburgo", "43,96"], narrow ? -46 : -70, narrow ? -40 : -56);
+      label("380", ["Italia", "1,38"], narrow ? 18 : 26, narrow ? 26 : 34, true);
+      label("040", ["Austria", "14,56"], narrow ? 30 : 44, narrow ? -38 : -48);
+      if (!narrow) label("250", ["Francia", "0,21"], 0, 0);
+      if (!narrow) label("752", ["Svezia", "12,71"], 0, 0);
+
+      // interazione
+      var hitSel = paths.filter(isIn).merge(dots);
+      clear = function () { paths.classed("is-dimmed", false).classed("is-hi", false); dots.classed("is-dimmed", false); };
+      hitSel.style("cursor", "pointer")
+        .on("pointerenter pointerdown", function (ev, f) {
+          paths.classed("is-dimmed", function (q) { return isIn(q) && q.id !== f.id; }).classed("is-hi", function (q) { return q.id === f.id; });
+          dots.classed("is-dimmed", function (q) { return q.id !== f.id; });
+          var p = d3.pointer(ev, host), html;
+          if (regions[f.id]) {
+            html = R.tipHTML({ title: "Belgio", value: null, rows: regions[f.id].map(function (d) { return [d.short + ", siti per km²", f2(d.dens)]; })
+              .concat(regions[f.id].map(function (d) { return [d.short + ", siti registrati", f0(d.reg)]; })), note: "Dati regionali: manca Bruxelles" });
+          } else if (byIso[f.id]) {
+            var d = byIso[f.id];
+            html = R.tipHTML({ title: d.name, value: f2(d.dens), unit: "siti per km²",
+              rows: [["Siti registrati", f0(d.reg)], ["Superficie artificiale", f0(d.area) + " km²"]], note: d.note || null });
+          } else {
+            html = R.tipHTML({ title: NODATA[f.id], value: "nessun dato", note: "Densità non disponibile nella rilevazione 2016" });
+          }
+          tip.show(html, p[0], p[1]);
+        })
+        .on("pointerleave", function (ev) { if (ev.pointerType === "mouse") { tip.hide(); clear(); } });
+      R.scheduleHeight();
+    });
+  }).catch(function (e) { R.fail("#chart", e); });
+})();
+</script>
+</body>
+</html>
